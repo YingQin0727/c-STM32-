@@ -1,0 +1,139 @@
+#include "stm32l4xx.h" // Device header
+
+//     Qin Ying   2021.6.1 ------ task 2 
+
+void Output_control(); 
+void Timer_init();
+void GPIO_init();
+void TIM6_IRQHandler();
+
+int State_counter = 0;
+
+
+int main(void)
+{
+    Timer_init();
+    GPIO_init();
+
+    while (1)
+    {
+
+    Output_control();
+
+    }
+}
+
+
+void TIM6_IRQHandler(void)  // Timer6 interrupt 5Hz 
+{
+    if (TIM6->SR & 0X0001) // interrupt
+    {
+
+        if (State_counter > 15) // reset 16 to 0
+        {
+            State_counter = 0;
+        }
+
+       
+         State_counter += 1; 
+    }
+    TIM6->SR &= ~(1 << 0); // Clear SR
+}
+
+
+void Output_control(){
+
+    // Output  PB_6 - Red LED   PB_1 - Yellow LED    PA_8 - Green LED   PA_11 - Orange LED
+
+    // Orange control
+
+    if (State_counter  % 2 )
+    {
+        GPIOA->ODR |= 0x1UL << 11; // On
+    }
+    else
+    {
+        GPIOA->ODR &= ~(0x1UL << 11); //  Off
+    }
+
+    //  Green  control
+    if ((State_counter >> 1) % 2)
+    {
+        GPIOA->ODR |= 0x1UL << 8; // On
+    }
+    else
+    {
+        GPIOA->ODR &= ~(0x1UL << 8); //  Off
+    }
+
+    //  Yellow control
+    if ((State_counter >> 2)  % 2)
+    {
+        GPIOB->ODR |= 0x1UL << 1; //  On
+    }
+    else
+    {
+        GPIOB->ODR &= ~(0x1UL << 1); // Off
+    }
+
+
+    // Red control     
+    if ((State_counter >> 3) % 2 )
+    {
+        GPIOB->ODR |= 0x1UL << 6; //  On
+    }
+    else
+    {
+        GPIOB->ODR &= ~(0x1UL << 6); // Off
+    }
+
+}
+
+void Timer_init(){
+
+    //Enable Timer 6
+    RCC->APB1ENR1 |= RCC_APB1ENR1_TIM6EN;
+
+    //Enable GPIOA clock
+    RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
+    RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
+
+
+    //Get 5Hz Interrupt 
+    TIM6->PSC = 4000 - 1;    // Prescaler  
+    TIM6->ARR = 200 - 1;       // Auto-Reload
+    TIM6->CNT = 0;            // counter
+    TIM6->DIER |= 0X1UL << 0; // Update interrupt enabled
+    TIM6->CR1 |= 0X1UL << 0;  // Enabled
+
+    NVIC_SetPriorityGrouping(0x01);                 // Set Group
+    NVIC_SetPriority(TIM6_IRQn, NVIC_EncodePriority(0x01, 1, 1));
+    NVIC_EnableIRQ(TIM6_IRQn); // Enable
+
+}
+
+void GPIO_init(){
+
+    //  LED  GPIO
+    GPIOB->MODER &= ~(0x3UL << 12); //clear
+    GPIOB->MODER |= 0x1UL << 12;    // PB_6 - Red LED
+    GPIOB->PUPDR &= ~(0x3UL << 12); // clear
+    GPIOB->PUPDR |= 0x2UL << 12;    // Pull-Down MODE 
+
+    GPIOB->MODER &= ~(0x3UL << 2);  // clear
+    GPIOB->MODER |= 0x1UL << 2;     // PB_1 - Yellow LED
+    GPIOB->PUPDR &= ~(0x3UL << 2);  // clear   
+    GPIOB->PUPDR |= 0x2UL << 2;     // Pull-Down MODE 
+
+    GPIOA->MODER &= ~(0x3UL << 16); // clear
+    GPIOA->MODER |= 0x1UL << 16;    // PA_8 - Green LED
+    GPIOA->PUPDR &= ~(0x3UL << 16); // clear
+    GPIOA->PUPDR |= 0x2UL << 16;    // Pull-Down MODE  
+
+    GPIOA->MODER &= ~(0x3UL << 22); //clear
+    GPIOA->MODER |= 0x1UL << 22;   // PA_11 - Orange 
+    GPIOA->PUPDR &= ~(0x3UL << 22); // clear
+    GPIOA->PUPDR |= 0x2UL << 22;    //Pull-Down MODE  
+
+
+}
