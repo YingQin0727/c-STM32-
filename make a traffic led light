@@ -1,0 +1,256 @@
+#include "stm32l4xx.h" // Device header
+
+//     Qin Ying   2021.6.1 ------ task 1
+void Output_control(); 
+void Timer_init();
+void GPIO_init();
+void PWM_init();
+void TIM6_IRQHandler();
+
+// data initial
+int State_A = 8 ; // 1 0 0 0     red (1)-yellow (0)-green (0)-servo (0)
+int State_B= 12 ;// 1 1 0 0
+int State_C = 3  ;// 0 0 1 1
+int State_D = 4  ;// 0 1 0 0
+int State = 0; // all the state 
+int INT_counter = 0; // counter
+
+
+
+int main(void)
+{
+    Timer_init();
+    GPIO_init();
+    PWM_init();
+
+    State = State_A;    // initial
+    INT_counter = 0; 
+
+    // Main while
+    while (1)
+    {
+       
+    Output_control();
+      
+    }
+}
+void Timer_init(){
+
+    RCC->APB1ENR1 |= RCC_APB1ENR1_TIM6EN;    //Enable Timer 6
+    RCC->AHB2ENR  |= RCC_AHB2ENR_GPIOAEN;     //Enable GPIOA clock
+    RCC->AHB2ENR  |= RCC_AHB2ENR_GPIOBEN;
+
+    RCC->APB2ENR  |= 0x1UL << 11;           // Enable TIM1
+ //   RCC->APB2ENR  |= RCC_APB2ENR_TIM1EN;  
+
+
+    //  Timer Interrupt - NVIC Config
+
+
+    // Timer 6 config   4MHz - 1000Hz - 2Hz 
+    TIM6->PSC = 4000 - 1;    // Prescaler
+    TIM6->ARR = 500 - 1;      // Auto-Reload
+    TIM6->CNT = 0;            // counter
+    TIM6->DIER |= 0X1UL << 0; // Update interrupt enabled
+    TIM6->CR1 |= 0X1UL << 0;  // Enabled
+
+    NVIC_SetPriorityGrouping(0x01);                // Set Group
+    NVIC_SetPriority(TIM6_IRQn, NVIC_EncodePriority(0x01, 1, 1));   
+    NVIC_EnableIRQ(TIM6_IRQn); // Enable
+
+ /*   NVIC_SetPriorityGrouping(0x03);                 // Set Group
+    CodePriority = NVIC_EncodePriority(0x03, 1, 2); // Set Priority
+    NVIC_SetPriority(TIM6_IRQn, CodePriority);
+    NVIC_EnableIRQ(TIM6_IRQn); // Enable
+    */
+
+    
+}
+
+void GPIO_init(){
+
+    GPIOB->MODER &= ~(0x3UL << 12); //clear
+    GPIOB->MODER |= 0x1UL << 12;    // PB_6 - Red LED
+    GPIOB->PUPDR &= ~(0x3UL << 12); // clear
+    GPIOB->PUPDR |= 0x2UL << 12;    // Pull-Down MODE 
+
+
+    GPIOB->MODER &= ~(0x3UL << 2);  // clear
+    GPIOB->MODER |= 0x1UL << 2;     // PB_1 - Yellow LED
+    GPIOB->PUPDR &= ~(0x3UL << 2);  // clear   
+    GPIOB->PUPDR |= 0x2UL << 2;     // Pull-Down MODE 
+
+    GPIOA->MODER &= ~(0x3UL << 16); // clear
+    GPIOA->MODER |= 0x1UL << 16;    // PA_8 - Green LED
+    GPIOA->PUPDR &= ~(0x3UL << 16); // clear
+    GPIOA->PUPDR |= 0x2UL << 16;    // Pull-Down MODE  
+
+    GPIOA->MODER &= ~(0x3UL << 18); // Clear
+    GPIOA->MODER |= 0x2UL << 18;    // PA_9 AF mode
+    GPIOA->AFR[1] &= ~(0XFUL << 4); //  PA_9 AF
+    GPIOA->AFR[1] |= 0X1UL << 4;    //   PWM GPIO initial
+ //   GPIOA->AFRH &= ~(0XFUL << 4); //  PA_9 AF
+ //   GPIOA->AFRH |= 0X1UL << 4;    //   PWM GPIO initial
+
+}
+
+void PWM_init(){
+    
+    // Get 50Hz PWM
+    TIM1->PSC = 4000 - 1;  // 4000 000 / 4000 = 1000
+    TIM1->ARR = 20 - 1; // 1000 / 20 = 50Hz
+//    TIM6->PSC = 16000 - 1;    // Prescaler
+//    TIM6->ARR = 125 - 1;      // Auto-Reload
+    TIM1->CNT = 0;   // clear
+    
+    TIM1->CCMR1 &= 0X7FFFUL;      // clear
+ //   TIM1->CCMR1 &= ~(0x2UL << 15);      // clear
+
+    TIM1->CCMR1 |= (0X6UL << 12); // PWM 0110
+
+    TIM1->BDTR |= 1UL << 15;      //  output Enable
+
+    TIM1->CCR2 = 1;               // Compare register
+    TIM1->CCER |= 0X1UL << 4;     // compare enable register TIM1_CC2E
+    TIM1->CR1 |= 0X1UL;           // Counter enable
+    
+}
+
+void Output_control(){
+
+    // output   PB_6 - Red LED   PB_1 - Yellow LED    PA_8 - Green LED
+
+    // servo control
+
+    TIM1->CCR2 = State % 2 + 1;  
+    
+    // red control
+    if ((State >> 3) % 2)
+    {
+        GPIOB->ODR |= 0x1UL << 6; //  On
+    }
+    else
+    {
+        GPIOB->ODR &= ~(0x1UL << 6); // Off
+    }
+
+    // yellow control
+
+    if ((State >> 2) % 2)
+    {
+        GPIOB->ODR |= 0x1UL << 1; //  On
+    }
+    else
+    {
+        GPIOB->ODR &= ~(0x1UL << 1); //  Off
+    }
+
+    // green control
+
+    if ((State >> 1) % 2)
+    {
+        GPIOA->ODR |= 0x1UL << 8; // On
+    }
+    else
+    {
+        GPIOA->ODR &= ~(0x1UL << 8); // Off
+    }
+
+
+/*        switch (State)
+        {
+        case STATE_A:
+            GPIOB->ODR |= 0x1UL << 6;    // PB_6 - Red LED     - ON
+            GPIOB->ODR &= ~(0x1UL << 1); // PB_1 - Yellow LED  - OFF
+            GPIOA->ODR &= ~(0x1UL << 8); // PA_8 - Green LED   - OFF
+            TIM1->CCR2 = 1;              // Servo Closed
+            break;
+        case STATE_B:
+            GPIOB->ODR |= 0x1UL << 6;    // PB_6 - Red LED     - ON
+            GPIOB->ODR |= 0x1UL << 1;    // PB_1 - Yellow LED  - ON
+            GPIOA->ODR &= ~(0x1UL << 8); // PA_8 - Green LED   - OFF
+            TIM1->CCR2 = 1;              // Servo Closed
+            break;
+        case STATE_C:
+            GPIOB->ODR &= ~(0x1UL << 6); // PB_6 - Red LED     - OFF
+            GPIOB->ODR &= ~(0x1UL << 1); // PB_1 - Yellow LED  - OFF
+            GPIOA->ODR |= 0x1UL << 8;    // PA_8 - Green LED   - ON
+            TIM1->CCR2 = 2;              // Only Green LED ON, Servo Opened
+            break;
+        case STATE_D:
+            GPIOB->ODR &= ~(0x1UL << 6); // PB_6 - Red LED     - OFF
+            GPIOB->ODR |= 0x1UL << 1;    // PB_1 - Yellow LED  - ON
+            GPIOA->ODR &= ~(0x1UL << 8); // PA_8 - Green LED   - OFF
+            TIM1->CCR2 = 1;              // Servo Closed
+            break;
+        default:
+            break;
+        }
+*/
+
+
+
+}
+
+void TIM6_IRQHandler(void)   // Timer6 Interrupt       use the interrupt with 500 ms period
+{
+    if (TIM6->SR & 0X0001) // interrupt flag
+    {
+        
+        if (INT_counter > 7 )    //  reset the INT_counter 7->0
+        {
+            INT_counter = 0;
+        }
+
+        //  Finite State Machine
+        //  initial  INT_counter = 0  State = A 
+        // state_TIME  from 0->4000   (0-500   500-1000-1500    1500-2000-2500-3000-3500      3500-4000 (ms))
+        // INT_counter from 0->7->0   ( 0           1-2                  3-6                        7 )
+        // state       from A->D->A   ( A           B                     C                         D )
+        // State judgement
+        if ( INT_counter == 0 )
+            State = State_A; 
+        else if (INT_counter >= 1 & INT_counter <=2 )
+            State = State_B; 
+        else if (INT_counter >= 3 & INT_counter <=6 )
+            State = State_C; 
+        else 
+            State = State_D; 
+
+/*        switch (State)
+        {
+        case State_A:
+            if (INT_counter == 2)
+            {
+                State = State_B;
+            }
+            break;
+        case State_B:
+            if (INT_counter == 3)
+            {
+                State = State_C;
+            }
+            break;
+        case State_C:
+            if (INT_counter == 7)
+            {
+                State = State_D;
+            }
+            break;
+        case State_D:
+            if (INT_counter == 0)
+            {
+                State = State_A;
+            }
+            break;
+
+        default:
+            break;
+        }
+*/
+         
+   // Output_control();
+    INT_counter +=  1; // 500 ms per count
+    }
+    TIM6->SR &= ~(1 << 0); // clear SR to enable the next interrupt
+}
